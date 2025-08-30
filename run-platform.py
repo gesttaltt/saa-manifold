@@ -11,8 +11,20 @@ import platform
 import json
 import time
 import signal
+import socket
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+def find_free_port(start_port: int = 8000, max_attempts: int = 100) -> int:
+    """Find an available port starting from start_port."""
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"Could not find free port in range {start_port}-{start_port + max_attempts}")
 
 class PlatformCapabilities:
     """Detect and manage system capabilities for optimal platform configuration."""
@@ -24,6 +36,7 @@ class PlatformCapabilities:
             "python_version": platform.python_version(),
         }
         self.capabilities = self._detect_capabilities()
+        self.ports = self._allocate_ports()
     
     def _detect_capabilities(self) -> Dict[str, bool]:
         """Detect system capabilities for optimal configuration."""
@@ -36,12 +49,37 @@ class PlatformCapabilities:
             "sufficient_memory": self._check_memory(),
         }
         
-        # Derived capabilities
+        # Derived capabilities - Fix GPU acceleration logic
         caps["enhanced_mode"] = caps["docker"] and caps["sufficient_memory"]
-        caps["gpu_acceleration"] = caps["gpu_nvidia"] and caps["enhanced_mode"]
+        caps["gpu_acceleration"] = caps["gpu_nvidia"]  # GPU acceleration doesn't require Docker
         caps["development_mode"] = caps["python3"] and caps["nodejs"] and caps["git"]
         
         return caps
+    
+    def _allocate_ports(self) -> Dict[str, int]:
+        """Allocate free ports for all services."""
+        try:
+            backend_port = find_free_port(8000)
+            frontend_port = find_free_port(3000)
+            docs_port = find_free_port(8080)
+            
+            return {
+                "backend": backend_port,
+                "frontend": frontend_port,
+                "docs": docs_port,
+                "postgres": find_free_port(5432),
+                "redis": find_free_port(6379)
+            }
+        except RuntimeError as e:
+            print(f"⚠️  Port allocation failed: {e}")
+            # Use default ports as fallback
+            return {
+                "backend": 8000,
+                "frontend": 3000,
+                "docs": 8080,
+                "postgres": 5432,
+                "redis": 6379
+            }
     
     def _check_python(self) -> bool:
         """Check Python 3.11+ availability."""
@@ -68,10 +106,17 @@ class PlatformCapabilities:
     def _check_docker(self) -> bool:
         """Check Docker availability."""
         try:
+            # Try docker command
             result = subprocess.run(["docker", "--version"], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode != 0:
+                return False
+                
+            # Also check if Docker daemon is running
+            result = subprocess.run(["docker", "info"], 
+                                  capture_output=True, text=True, timeout=5)
             return result.returncode == 0
-        except:
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
     
     def _check_nvidia_gpu(self) -> bool:
@@ -113,6 +158,10 @@ class PlatformCapabilities:
             status = status_map[available]
             cap_name = cap.replace('_', ' ').title()
             print(f"{status} {cap_name}: {'Available' if available else 'Not Available'}")
+        
+        print(f"\n🔌 Allocated Ports:")
+        for service, port in self.ports.items():
+            print(f"   {service.title()}: {port}")
         
         print("\n🎯 Recommended Configuration:")
         if self.capabilities["enhanced_mode"]:
@@ -259,6 +308,8 @@ class PlatformRunner:
             return None
         
         try:
+            backend_port = self.capabilities.ports["backend"]
+            
             # Setup virtual environment
             venv_dir = backend_dir / "venv"
             if not venv_dir.exists():
@@ -266,22 +317,34 @@ class PlatformRunner:
                 subprocess.run([sys.executable, "-m", "venv", "venv"], 
                              cwd=backend_dir, check=True)
             
-            # Install dependencies
-            if self.system_info["os"] == "Windows":
-                pip_cmd = str(venv_dir / "Scripts" / "pip")
-                python_cmd = str(venv_dir / "Scripts" / "python")
+            # Determine correct paths for current OS
+            if self.capabilities.system_info["os"] == "Windows":
+                pip_cmd = venv_dir / "Scripts" / "pip.exe"
+                python_cmd = venv_dir / "Scripts" / "python.exe"
             else:
-                pip_cmd = str(venv_dir / "bin" / "pip")
-                python_cmd = str(venv_dir / "bin" / "python")
+                pip_cmd = venv_dir / "bin" / "pip"
+                python_cmd = venv_dir / "bin" / "python"
+            
+            # Check if commands exist
+            if not pip_cmd.exists():
+                print(f"❌ Pip not found at {pip_cmd}")
+                return None
             
             print("📦 Installing Python dependencies...")
-            subprocess.run([pip_cmd, "install", "-r", "requirements.txt"], 
-                         cwd=backend_dir, check=True, capture_output=True)
+            # Install minimal dependencies if requirements.txt doesn't exist
+            requirements_file = backend_dir / "requirements.txt"
+            if requirements_file.exists():
+                subprocess.run([str(pip_cmd), "install", "-r", "requirements.txt"], 
+                             cwd=backend_dir, check=True, capture_output=True)
+            else:
+                # Install minimal dependencies
+                subprocess.run([str(pip_cmd), "install", "fastapi", "uvicorn", "numpy", "scipy"], 
+                             cwd=backend_dir, check=True, capture_output=True)
             
-            # Start server
-            print("🔄 Starting backend server...")
-            cmd = [python_cmd, "-m", "uvicorn", "src.main:app", 
-                   "--reload", "--host", "0.0.0.0", "--port", "8000"]
+            # Start server with dynamic port
+            print(f"🔄 Starting backend server on port {backend_port}...")
+            cmd = [str(python_cmd), "-m", "uvicorn", "src.main:app", 
+                   "--reload", "--host", "0.0.0.0", "--port", str(backend_port)]
             
             return subprocess.Popen(cmd, cwd=backend_dir)
             
@@ -298,16 +361,54 @@ class PlatformRunner:
             return None
         
         try:
+            frontend_port = self.capabilities.ports["frontend"]
+            backend_port = self.capabilities.ports["backend"]
+            
+            # Check if npm is available
+            try:
+                subprocess.run(["npm", "--version"], check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print("❌ npm not found. Please install Node.js")
+                return None
+            
             # Install dependencies
             package_json = frontend_dir / "package.json"
             if package_json.exists():
                 print("📦 Installing Node.js dependencies...")
                 subprocess.run(["npm", "install"], cwd=frontend_dir, 
-                             check=True, capture_output=True)
+                             check=True, capture_output=True, timeout=300)
+            else:
+                print("⚠️  No package.json found, skipping npm install")
+            
+            # Create minimal package.json if it doesn't exist
+            if not package_json.exists():
+                minimal_package = {
+                    "name": "saa-frontend",
+                    "version": "1.0.0",
+                    "scripts": {
+                        "dev": "python -m http.server 3000"
+                    }
+                }
+                with open(package_json, 'w') as f:
+                    json.dump(minimal_package, f, indent=2)
+            
+            # Set environment variables for API connection
+            env = os.environ.copy()
+            env["VITE_API_BASE_URL"] = f"http://localhost:{backend_port}/api/v1"
+            env["PORT"] = str(frontend_port)
             
             # Start development server
-            print("🔄 Starting frontend server...")
-            return subprocess.Popen(["npm", "run", "dev"], cwd=frontend_dir)
+            print(f"🔄 Starting frontend server on port {frontend_port}...")
+            
+            # Try npm run dev first, fallback to simple server
+            try:
+                return subprocess.Popen(["npm", "run", "dev"], cwd=frontend_dir, env=env)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print("⚠️  npm run dev failed, starting simple HTTP server...")
+                # Fallback to simple Python HTTP server
+                return subprocess.Popen([
+                    sys.executable, "-m", "http.server", str(frontend_port)
+                ], cwd=frontend_dir)
             
         except Exception as e:
             print(f"❌ Frontend startup failed: {e}")
@@ -315,25 +416,28 @@ class PlatformRunner:
     
     def _print_access_info(self):
         """Print access information for the user."""
+        frontend_port = self.capabilities.ports["frontend"]
+        backend_port = self.capabilities.ports["backend"]
+        
         print("\n" + "=" * 50)
         print("🌐 SAA Platform Access Points:")
-        print("   Frontend:      http://localhost:3000")
-        print("   Backend API:   http://localhost:8000")
-        print("   API Docs:      http://localhost:8000/docs")
-        print("   Health Check:  http://localhost:8000/health")
+        print(f"   Frontend:      http://localhost:{frontend_port}")
+        print(f"   Backend API:   http://localhost:{backend_port}")
+        print(f"   API Docs:      http://localhost:{backend_port}/docs")
+        print(f"   Health Check:  http://localhost:{backend_port}/health")
         
         if self.capabilities.capabilities["enhanced_mode"]:
-            print("   GPU Dashboard: http://localhost:3000/monitoring")
-            print("   AI Assistant:  http://localhost:3000/ai")
-            print("   Collaboration: http://localhost:3000/collaborate")
+            print(f"   GPU Dashboard: http://localhost:{frontend_port}/monitoring")
+            print(f"   AI Assistant:  http://localhost:{frontend_port}/ai")
+            print(f"   Collaboration: http://localhost:{frontend_port}/collaborate")
         
         print("\n🎯 Quick Actions:")
         print("   1. Visit Frontend → Analysis → Start New Analysis")
         print("   2. Configure region (default SAA core)")
         print("   3. View results in 3D Visualization")
         
-        if self.capabilities.capabilities["gpu_nvidia"]:
-            print("   4. Enable GPU acceleration in settings")
+        if self.capabilities.capabilities["gpu_acceleration"]:
+            print("   4. ⚡ GPU acceleration available")
         
         print("\n⚠️  Press Ctrl+C to stop all services")
         print("=" * 50)
