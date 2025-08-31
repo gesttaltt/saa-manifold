@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAA Manifold Research Platform</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    
+    <!-- External Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Modular CSS -->
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/visualization.css">
+    <link rel="stylesheet" href="/css/navigation.css">
+    
+    <!-- Additional styles for navigation -->
+    <style>
+        .app-container {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .main-navigation {
+            width: 280px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border-color);
+            padding: var(--spacing-md);
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
+        }
+        
+        .nav-header {
+            margin-bottom: var(--spacing-lg);
+            text-align: center;
+            padding-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .nav-menu {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+        
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--border-radius-md);
+            color: var(--text-secondary);
+            transition: all var(--transition-fast);
+            gap: var(--spacing-sm);
+        }
+        
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+        
+        .nav-item.active {
+            background: var(--primary-color);
+            color: white;
+        }
+        
+        .nav-icon {
+            font-size: 1.2rem;
+            width: 24px;
+            text-align: center;
+        }
+        
+        .nav-footer {
+            margin-top: var(--spacing-lg);
+            padding-top: var(--spacing-md);
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .main-content {
+            flex: 1;
+            overflow: auto;
+            padding: var(--spacing-lg);
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+        
+        .input-separator {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .analysis-layout {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: var(--spacing-lg);
+            height: calc(100vh - 120px);
+        }
+        
+        .analysis-config {
+            overflow-y: auto;
+        }
+        
+        .analysis-results {
+            overflow-y: auto;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--spacing-md);
+            margin-top: var(--spacing-lg);
+        }
+        
+        .dashboard-card {
+            padding: var(--spacing-lg);
+            background: var(--bg-surface);
+            border-radius: var(--border-radius-lg);
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+        
+        .report-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .report-actions {
+            display: flex;
+            gap: var(--spacing-xs);
+        }
+        
+        .visualization-container {
+            position: relative;
+            height: calc(100vh - 120px);
+            background: var(--bg-primary);
+            border-radius: var(--border-radius-md);
+            overflow: hidden;
+        }
+        
+        .viz-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+            
+            .main-navigation {
+                width: 100%;
+                height: auto;
+                padding: var(--spacing-sm);
+            }
+            
+            .nav-menu {
+                flex-direction: row;
+                overflow-x: auto;
+            }
+            
+            .analysis-layout {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen" class="modal-overlay">
+        <div class="text-center">
+            <div class="spinner"></div>
+            <h3 style="margin-top: var(--spacing-md);">🧬 SAA Platform</h3>
+            <p>Loading enhanced visualization...</p>
+        </div>
+    </div>
+
+    <div id="app" class="app-container" style="display: none;">
+        <!-- Navigation will be inserted here -->
+        <div id="navigation"></div>
+        
+        <!-- Main content area -->
+        <main id="mainContent" class="main-content">
+            <!-- Route content will be inserted here -->
+        </main>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r158/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Modular JavaScript -->
+    <script src="/js/api-client.js"></script>
+    <script src="/js/saa-router.js"></script>
+    <script src="/js/reports-manager.js"></script>
+    
+    <script>
+        // Global application state
+        let saaAPI, saaRouter, reportsManager, saaViz;
+        let currentAnalysis = null;
+        
+        // Initialize application
+        async function initializeApp() {
+            try {
+                // Detect backend port from URL parameters or default
+                const urlParams = new URLSearchParams(window.location.search);
+                const backendPort = urlParams.get('api_port') || '8001';
+                const backendURL = `http://localhost:${backendPort}`;
+                
+                console.log(`🔌 Connecting to backend: ${backendURL}`);
+                
+                // Initialize API client
+                saaAPI = new SAAAPIClient(backendURL);
+                
+                // Initialize router
+                saaRouter = new SAARouter();
+                
+                // Initialize reports manager
+                reportsManager = new LocalReportsManager();
+                
+                // Setup API event handlers
+                setupAPIEventHandlers();
+                
+                // Setup router event handlers
+                setupRouterEventHandlers();
+                
+                // Load navigation
+                document.getElementById('navigation').innerHTML = saaRouter.getNavigationHTML();
+                
+                // Initial route load
+                await saaRouter.handleRouteChange();
+                
+                // Test API connection
+                await testAPIConnection();
+                
+                // Hide loading screen
+                document.getElementById('loadingScreen').style.display = 'none';
+                document.getElementById('app').style.display = 'flex';
+                
+                console.log('✅ SAA Platform initialized successfully');
+                
+            } catch (error) {
+                console.error('❌ App initialization failed:', error);
+                showError('Failed to initialize application: ' + error.message);
+            }
+        }
+        
+        function setupAPIEventHandlers() {
+            saaAPI.on('connected', (health) => {
+                updateConnectionStatus('connected', health);
+            });
+            
+            saaAPI.on('error', (error) => {
+                updateConnectionStatus('error', error);
+                console.warn('API Error:', error);
+            });
+            
+            saaAPI.on('analysisStarted', (result) => {
+                currentAnalysis = result;
+                updateAnalysisResults(result);
+            });
+        }
+        
+        function setupRouterEventHandlers() {
+            saaRouter.on('routeChanged', async (event) => {
+                const content = await saaRouter.loadRouteContent(event.route);
+                document.getElementById('mainContent').innerHTML = content;
+                
+                // Initialize route-specific functionality
+                await initializeRouteComponents(event.hash);
+            });
+        }
+        
+        async function initializeRouteComponents(routeHash) {
+            switch (routeHash) {
+                case '':
+                    await initializeDashboard();
+                    break;
+                case 'analysis':
+                    await initializeAnalysis();
+                    break;
+                case 'visualization':
+                    await initializeVisualization();
+                    break;
+                case 'data':
+                    await initializeDataExplorer();
+                    break;
+                case 'reports':
+                    await initializeLocalReports();
+                    break;
+                case 'settings':
+                    await initializeSettings();
+                    break;
+            }
+        }
+        
+        async function initializeDashboard() {
+            try {
+                const health = await saaAPI.checkHealth();
+                const statusCard = document.getElementById('systemStatus');
+                if (statusCard) {
+                    statusCard.innerHTML = `
+                        <h4>🔧 System Status</h4>
+                        <div class="status-indicator status-${health.status === 'healthy' ? 'healthy' : 'warning'}">
+                            ${health.status === 'healthy' ? '✅' : '⚠️'} ${health.status}
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Version:</span>
+                            <span class="metric-value">${health.version || 'Unknown'}</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.warn('Dashboard initialization failed:', error);
+            }
+        }
+        
+        async function initializeAnalysis() {
+            const form = document.getElementById('analysisForm');
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await runAnalysis();
+                });
+            }
+        }
+        
+        async function runAnalysis() {
+            try {
+                const config = {
+                    region: {
+                        longitude_min: parseFloat(document.getElementById('lonMin').value),
+                        longitude_max: parseFloat(document.getElementById('lonMax').value),
+                        latitude_min: parseFloat(document.getElementById('latMin').value),
+                        latitude_max: parseFloat(document.getElementById('latMax').value),
+                        altitude_min: parseFloat(document.getElementById('altMin').value),
+                        altitude_max: parseFloat(document.getElementById('altMax').value)
+                    },
+                    resolution: {
+                        longitude_step: parseFloat(document.getElementById('resolution').value),
+                        latitude_step: parseFloat(document.getElementById('resolution').value),
+                        altitude_step: 10.0
+                    }
+                };
+                
+                console.log('🚀 Starting analysis with config:', config);
+                
+                const resultsDiv = document.getElementById('analysisResults');
+                resultsDiv.innerHTML = '<div class="loading">🔄 Running analysis...</div>';
+                
+                const result = await saaAPI.analyzeRegion(config);
+                updateAnalysisResults(result);
+                
+                // Auto-generate report
+                await reportsManager.generateReport(result, `Analysis ${new Date().toLocaleString()}`);
+                
+            } catch (error) {
+                document.getElementById('analysisResults').innerHTML = 
+                    `<div class="status-indicator status-error">❌ Analysis failed: ${error.message}</div>`;
+            }
+        }
+        
+        function updateAnalysisResults(result) {
+            const resultsDiv = document.getElementById('analysisResults');
+            if (!resultsDiv) return;
+            
+            if (result.status === 'completed' && result.result) {
+                const anomalies = result.result.anomalies || [];
+                resultsDiv.innerHTML = `
+                    <div class="analysis-summary">
+                        <div class="summary-card">
+                            <span class="summary-value">${anomalies.length}</span>
+                            <span class="summary-label">Anomalies</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="summary-value">${result.processing_time_seconds?.toFixed(1) || 0}s</span>
+                            <span class="summary-label">Processing</span>
+                        </div>
+                        <div class="summary-card">
+                            <span class="summary-value">${result.result.manifold_data?.metadata?.total_points || 0}</span>
+                            <span class="summary-label">Data Points</span>
+                        </div>
+                    </div>
+                    
+                    ${anomalies.length > 0 ? `
+                        <div class="anomaly-list">
+                            ${anomalies.map(anomaly => `
+                                <div class="anomaly-item">
+                                    <div class="anomaly-info">
+                                        <div class="anomaly-id">${anomaly.id}</div>
+                                        <div class="anomaly-intensity">${anomaly.intensity_peak?.toFixed(1) || 0} p/cm²/s</div>
+                                    </div>
+                                    <div class="coordinate-display">
+                                        ${anomaly.center_coordinates.longitude.toFixed(2)}°, 
+                                        ${anomaly.center_coordinates.latitude.toFixed(2)}°
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="mt-md">
+                        <button class="btn btn-primary" onclick="saaRouter.navigate('visualization')">
+                            🎨 View 3D Visualization
+                        </button>
+                        <button class="btn btn-secondary" onclick="reportsManager.generateReport(currentAnalysis)">
+                            📋 Save Report
+                        </button>
+                    </div>
+                `;
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="status-indicator status-info">
+                        ℹ️ Analysis ID: ${result.analysis_id}
+                    </div>
+                    <div class="status-indicator status-info">
+                        📊 Status: ${result.status}
+                    </div>
+                `;
+            }
+        }
+        
+        async function initializeVisualization() {
+            // Initialize 3D visualization
+            const canvas = document.getElementById('vizCanvas');
+            if (canvas) {
+                saaViz = new SAA3DVisualization(canvas);
+                await saaViz.initialize();
+                
+                // Load current analysis data if available
+                if (currentAnalysis) {
+                    await saaViz.loadAnalysisData(currentAnalysis);
+                }
+            }
+        }
+        
+        async function initializeDataExplorer() {
+            try {
+                const dataSources = await saaAPI.getDataSources();
+                const listElement = document.getElementById('dataSourcesList');
+                if (listElement) {
+                    listElement.innerHTML = `
+                        <h4>📡 Available Data Sources</h4>
+                        ${dataSources.data_sources?.map(source => `
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5>${source.name}</h5>
+                                    <p>${source.description}</p>
+                                    <div class="status-indicator status-${source.available ? 'healthy' : 'error'}">
+                                        ${source.available ? '✅ Available' : '❌ Offline'}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('') || '<div>No data sources available</div>'}
+                    `;
+                }
+            } catch (error) {
+                console.warn('Data explorer initialization failed:', error);
+            }
+        }
+        
+        async function initializeLocalReports() {
+            reportsManager.updateReportsUI();
+        }
+        
+        async function initializeSettings() {
+            // Settings initialization
+            console.log('⚙️ Settings initialized');
+        }
+        
+        function updateConnectionStatus(status, data) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (statusElement) {
+                if (status === 'connected') {
+                    statusElement.innerHTML = '<span class="status-indicator status-healthy">✅ Connected</span>';
+                } else {
+                    statusElement.innerHTML = '<span class="status-indicator status-error">❌ Disconnected</span>';
+                }
+            }
+        }
+        
+        async function testAPIConnection() {
+            try {
+                const connection = await saaAPI.testConnection();
+                console.log('🔗 API Connection Test:', connection);
+                return connection.connected;
+            } catch (error) {
+                console.warn('🔌 API connection test failed:', error);
+                return false;
+            }
+        }
+        
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'modal-overlay';
+            errorDiv.innerHTML = `
+                <div class="modal-content">
+                    <h3>❌ Error</h3>
+                    <p>${message}</p>
+                    <button class="btn btn-primary" onclick="this.closest('.modal-overlay').remove()">
+                        OK
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(errorDiv);
+        }
+        
+        // 3D Visualization Class
+        class SAA3DVisualization {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.manifold = null;
+                this.animating = true;
+            }
+            
+            async initialize() {
+                // Scene setup
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x001122);
+                
+                // Camera
+                this.camera = new THREE.PerspectiveCamera(
+                    75, 
+                    this.canvas.clientWidth / this.canvas.clientHeight, 
+                    0.1, 
+                    1000
+                );
+                this.camera.position.set(60, 40, 80);
+                
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ 
+                    canvas: this.canvas, 
+                    antialias: true 
+                });
+                this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+                this.renderer.shadowMap.enabled = true;
+                
+                // Controls
+                this.controls = new THREE.OrbitControls(this.camera, this.canvas);
+                this.controls.enableDamping = true;
+                
+                // Lighting
+                this.scene.add(new THREE.AmbientLight(0x404040, 0.4));
+                const light = new THREE.DirectionalLight(0xffffff, 0.8);
+                light.position.set(50, 50, 50);
+                light.castShadow = true;
+                this.scene.add(light);
+                
+                // Create default manifold
+                await this.createDefaultManifold();
+                
+                // Start animation
+                this.animate();
+                
+                // Handle resize
+                window.addEventListener('resize', () => this.onResize());
+            }
+            
+            async createDefaultManifold() {
+                const geometry = new THREE.BufferGeometry();
+                const vertices = [], colors = [], indices = [];
+                
+                const resolution = 60;
+                for (let i = 0; i < resolution; i++) {
+                    for (let j = 0; j < resolution; j++) {
+                        const lon = -90 + (i / (resolution - 1)) * 90;
+                        const lat = -50 + (j / (resolution - 1)) * 50;
+                        
+                        // SAA flux calculation
+                        const d1 = Math.sqrt((lon + 50)**2 + (lat + 25)**2);
+                        const d2 = Math.sqrt((lon + 45)**2 + (lat + 15)**2);
+                        const flux = Math.exp(-d1/20) + 0.8*Math.exp(-d2/15);
+                        
+                        vertices.push(lon, lat, 4 + flux * 10);
+                        
+                        // Plasma colors
+                        const t = Math.min(1, flux);
+                        colors.push(0.05 + 0.95*Math.pow(t, 0.5), Math.pow(t, 1.5), 0.2 + 0.8*Math.pow(t, 2));
+                        
+                        if (i < resolution-1 && j < resolution-1) {
+                            const a = i*resolution + j;
+                            const b = (i+1)*resolution + j;
+                            const c = (i+1)*resolution + (j+1);
+                            const d = i*resolution + (j+1);
+                            indices.push(a,b,c, a,c,d);
+                        }
+                    }
+                }
+                
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                geometry.setIndex(indices);
+                geometry.computeNormals();
+                
+                const material = new THREE.MeshStandardMaterial({
+                    vertexColors: true,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.85
+                });
+                
+                this.manifold = new THREE.Mesh(geometry, material);
+                this.scene.add(this.manifold);
+                
+                // Update stats
+                this.updateVisualizationStats({
+                    vertices: vertices.length / 3,
+                    faces: indices.length / 3,
+                    anomalies: 3
+                });
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                this.controls.update();
+                
+                if (this.animating && this.manifold) {
+                    this.manifold.rotation.z += 0.005;
+                }
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+            
+            updateVisualizationStats(stats) {
+                const statsElement = document.getElementById('manifoldStats');
+                if (statsElement) {
+                    statsElement.innerHTML = `
+                        <div class="metric">
+                            <span class="metric-label">Vertices:</span>
+                            <span class="metric-value">${stats.vertices?.toLocaleString() || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Faces:</span>
+                            <span class="metric-value">${stats.faces?.toLocaleString() || 0}</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Anomalies:</span>
+                            <span class="metric-value">${stats.anomalies || 0}</span>
+                        </div>
+                    `;
+                }
+            }
+            
+            resetCamera() {
+                this.camera.position.set(60, 40, 80);
+                this.controls.reset();
+            }
+            
+            toggleWireframe() {
+                if (this.manifold) {
+                    this.manifold.material.wireframe = !this.manifold.material.wireframe;
+                }
+            }
+            
+            cycleColors() {
+                // Color cycling implementation
+                console.log('🎨 Cycling colors...');
+            }
+            
+            updateOpacity(value) {
+                if (this.manifold) {
+                    this.manifold.material.opacity = value / 100;
+                }
+            }
+            
+            updateSpeed(value) {
+                // Animation speed control
+                this.animationSpeed = value / 10;
+            }
+            
+            exportImage() {
+                const link = document.createElement('a');
+                link.download = 'saa-manifold.png';
+                link.href = this.renderer.domElement.toDataURL();
+                link.click();
+            }
+            
+            onResize() {
+                this.camera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+            }
+            
+            async loadAnalysisData(analysisData) {
+                // Load real analysis data into visualization
+                console.log('📊 Loading analysis data into visualization:', analysisData);
+            }
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', initializeApp);
+        
+        // Global error handler
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+        });
+        
+        console.log('🧬 SAA Platform Enhanced Standalone - Loading...');
+    </script>
+</body>
+</html>

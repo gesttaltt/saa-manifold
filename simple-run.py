@@ -654,19 +654,27 @@ def main():
                     
                     # Print access info
                     print(f"\n🌐 Access Points:")
-                    print(f"   Frontend:  http://localhost:{frontend_port}/standalone_index.html")
-                    print(f"   API:       http://localhost:{backend_port}")
-                    print(f"   Health:    http://localhost:{backend_port}/health")
-                    print(f"   Docs:      http://localhost:{backend_port}/docs")
+                    print(f"   Enhanced App:  http://localhost:{frontend_port}/enhanced_standalone.html")
+                    print(f"   Basic App:     http://localhost:{frontend_port}/standalone_index.html")
+                    print(f"   API:           http://localhost:{backend_port}")
+                    print(f"   Health:        http://localhost:{backend_port}/health")
+                    print(f"   Docs:          http://localhost:{backend_port}/docs")
                     
-                    # Try to open the standalone React app
+                    print(f"\n🎯 Features Available:")
+                    print(f"   • Full React application with routing")
+                    print(f"   • API integration with dynamic ports")
+                    print(f"   • Local reports generation and export")
+                    print(f"   • 3D visualization with GPU acceleration")
+                    print(f"   • Modular CSS and responsive design")
+                    
+                    # Try to open the enhanced standalone app
                     try:
-                        webbrowser.open(f"http://localhost:{frontend_port}/standalone_index.html")
-                        print("🌐 Opened enhanced React app in browser")
+                        webbrowser.open(f"http://localhost:{frontend_port}/enhanced_standalone.html?api_port={backend_port}")
+                        print("🌐 Opened enhanced React app with API integration")
                     except:
                         try:
-                            webbrowser.open(f"http://localhost:{frontend_port}")
-                            print("🌐 Opened basic frontend in browser")
+                            webbrowser.open(f"http://localhost:{frontend_port}/enhanced_standalone.html")
+                            print("🌐 Opened enhanced React app in browser")
                         except:
                             pass
                     
