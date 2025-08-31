@@ -195,7 +195,11 @@
         
         <!-- Main content area -->
         <main id="mainContent" class="main-content">
+            <!-- Breadcrumb navigation -->
+            <div id="breadcrumb" class="breadcrumb mb-md"></div>
+            
             <!-- Route content will be inserted here -->
+            <div id="routeContent"></div>
         </main>
     </div>
 
@@ -228,8 +232,8 @@
                 // Initialize API client
                 saaAPI = new SAAAPIClient(backendURL);
                 
-                // Initialize router
-                saaRouter = new SAARouter();
+                // Initialize router (use hash routing for standalone HTML)
+                saaRouter = new SAARouter(true); // Enable hash routing for standalone files
                 
                 // Initialize reports manager
                 reportsManager = new LocalReportsManager();
@@ -279,34 +283,107 @@
         
         function setupRouterEventHandlers() {
             saaRouter.on('routeChanged', async (event) => {
-                const content = await saaRouter.loadRouteContent(event.route);
-                document.getElementById('mainContent').innerHTML = content;
+                console.log('🧭 Route changed:', event);
                 
-                // Initialize route-specific functionality
-                await initializeRouteComponents(event.hash);
+                // Update breadcrumb
+                saaRouter.updateBreadcrumb();
+                
+                // Load route content
+                const content = await saaRouter.loadRouteContent(event.route);
+                document.getElementById('routeContent').innerHTML = content;
+                
+                // Initialize route-specific functionality  
+                await initializeRouteComponents(event.path, event.params);
+                
+                // Update reports count in navigation
+                updateReportsCount();
             });
         }
         
-        async function initializeRouteComponents(routeHash) {
-            switch (routeHash) {
+        async function initializeRouteComponents(routePath, params = {}) {
+            console.log('🔧 Initializing route components:', routePath, params);
+            
+            // Handle parameterized routes
+            const baseRoute = routePath.split('/')[0] || '';
+            
+            switch (baseRoute) {
                 case '':
                     await initializeDashboard();
                     break;
                 case 'analysis':
-                    await initializeAnalysis();
+                    if (params.id) {
+                        await initializeAnalysisDetails(params.id);
+                    } else {
+                        await initializeAnalysis();
+                    }
                     break;
                 case 'visualization':
-                    await initializeVisualization();
+                    if (params.id) {
+                        await initializeVisualizationDetails(params.id);
+                    } else {
+                        await initializeVisualization();
+                    }
                     break;
                 case 'data':
-                    await initializeDataExplorer();
+                    if (routePath === 'data/sources') {
+                        await initializeDataSources();
+                    } else {
+                        await initializeDataExplorer();
+                    }
                     break;
                 case 'reports':
-                    await initializeLocalReports();
+                    if (params.id) {
+                        await initializeReportDetails(params.id);
+                    } else {
+                        await initializeLocalReports();
+                    }
                     break;
                 case 'settings':
                     await initializeSettings();
                     break;
+                case 'help':
+                    await initializeHelp();
+                    break;
+                default:
+                    console.warn('Unknown route:', routePath);
+                    await initializeDashboard();
+            }
+        }
+        
+        // Add new route component initializers
+        async function initializeAnalysisDetails(analysisId) {
+            console.log('📊 Loading analysis details for:', analysisId);
+            // Implementation for analysis details view
+        }
+        
+        async function initializeVisualizationDetails(vizId) {
+            console.log('🎨 Loading visualization details for:', vizId);
+            // Implementation for visualization details view
+        }
+        
+        async function initializeDataSources() {
+            console.log('📡 Loading data sources view');
+            // Implementation for data sources view
+        }
+        
+        async function initializeReportDetails(reportId) {
+            console.log('📋 Loading report details for:', reportId);
+            const report = reportsManager.getReport(reportId);
+            if (report) {
+                // Show detailed report view
+                reportsManager.viewReport(reportId);
+            }
+        }
+        
+        async function initializeHelp() {
+            console.log('❓ Loading help documentation');
+            // Implementation for help view
+        }
+        
+        function updateReportsCount() {
+            const countElement = document.getElementById('reportsCount');
+            if (countElement && reportsManager) {
+                countElement.textContent = reportsManager.getReports().length;
             }
         }
         
@@ -711,12 +788,174 @@
         // Initialize when page loads
         window.addEventListener('load', initializeApp);
         
+        // Additional utility functions
+        async function generateQuickReport() {
+            try {
+                console.log('📄 Generating quick report...');
+                const report = await reportsManager.generateReport(
+                    currentAnalysis || reportsManager.generateMockAnalysisData(),
+                    `Quick Report - ${new Date().toLocaleString()}`
+                );
+                
+                reportsManager.showNotification('✅ Quick report generated successfully', 'success');
+                updateReportsCount();
+                
+                // Navigate to reports to see the new report
+                saaRouter.navigate('reports');
+            } catch (error) {
+                reportsManager.showNotification('❌ Failed to generate report', 'error');
+                console.error('Quick report generation failed:', error);
+            }
+        }
+        
+        async function openAIQuery() {
+            const query = prompt('🤖 Ask the AI Assistant about SAA data:\n\nExample: "Show me the strongest anomaly in the SAA region"');
+            if (!query) return;
+            
+            try {
+                console.log('🤖 Processing AI query:', query);
+                reportsManager.showNotification('🤖 Processing AI query...', 'info');
+                
+                const result = await saaAPI.queryNaturalLanguage(query, {
+                    user_expertise: 'intermediate',
+                    preferred_visualization: '3d_manifold'
+                });
+                
+                console.log('🎯 AI Response:', result);
+                
+                // Show AI response in modal
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>🤖 AI Assistant Response</h3>
+                            <button class="btn btn-icon" onclick="this.closest('.modal-overlay').remove()">✕</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-md">
+                                <strong>Your Query:</strong> "${query}"
+                            </div>
+                            <div class="mb-md">
+                                <strong>AI Interpretation:</strong><br>
+                                ${result.explanation || 'Query processed successfully'}
+                            </div>
+                            ${result.suggested_analysis ? `
+                                <div class="mb-md">
+                                    <strong>Suggested Analysis:</strong><br>
+                                    <pre class="scientific-notation">${JSON.stringify(result.suggested_analysis, null, 2)}</pre>
+                                </div>
+                            ` : ''}
+                            ${result.follow_up_questions?.length ? `
+                                <div class="mb-md">
+                                    <strong>Follow-up Questions:</strong>
+                                    <ul>
+                                        ${result.follow_up_questions.map(q => `<li>${q}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-primary" onclick="this.closest('.modal-overlay').remove()">
+                                Close
+                            </button>
+                            ${result.suggested_analysis ? `
+                                <button class="btn btn-success" onclick="executeAISuggestion(); this.closest('.modal-overlay').remove();">
+                                    🚀 Execute Suggestion
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                // Store AI result for potential execution
+                window.lastAIResult = result;
+                
+            } catch (error) {
+                reportsManager.showNotification('❌ AI query failed: ' + error.message, 'error');
+                console.error('AI query failed:', error);
+            }
+        }
+        
+        async function executeAISuggestion() {
+            if (window.lastAIResult?.suggested_analysis) {
+                try {
+                    saaRouter.navigate('analysis');
+                    // Auto-fill form with AI suggestions
+                    setTimeout(() => {
+                        const suggestion = window.lastAIResult.suggested_analysis;
+                        if (suggestion.region) {
+                            document.getElementById('lonMin').value = suggestion.region.longitude_min;
+                            document.getElementById('lonMax').value = suggestion.region.longitude_max;
+                            document.getElementById('latMin').value = suggestion.region.latitude_min;
+                            document.getElementById('latMax').value = suggestion.region.latitude_max;
+                            document.getElementById('altMin').value = suggestion.region.altitude_min;
+                            document.getElementById('altMax').value = suggestion.region.altitude_max;
+                        }
+                        reportsManager.showNotification('🤖 AI suggestion applied to analysis form', 'success');
+                    }, 500);
+                } catch (error) {
+                    reportsManager.showNotification('❌ Failed to apply AI suggestion', 'error');
+                }
+            }
+        }
+        
+        function updateDashboardMetrics() {
+            // Update dashboard cards with real data
+            if (reportsManager) {
+                const reportsCount = reportsManager.getReports().length;
+                const dashboardCount = document.getElementById('dashboardReportsCount');
+                if (dashboardCount) {
+                    dashboardCount.textContent = reportsCount;
+                }
+            }
+            
+            // Update last analysis time
+            const lastAnalysisElement = document.getElementById('lastAnalysisTime');
+            if (lastAnalysisElement && currentAnalysis) {
+                const timestamp = new Date(currentAnalysis.timestamp || Date.now());
+                lastAnalysisElement.textContent = timestamp.toLocaleString();
+            }
+        }
+        
         // Global error handler
         window.addEventListener('error', (event) => {
             console.error('Global error:', event.error);
+            reportsManager?.showNotification('❌ Application error occurred', 'error');
+        });
+        
+        // Global keyboard shortcuts
+        window.addEventListener('keydown', (event) => {
+            // Ctrl/Cmd + shortcuts
+            if (event.ctrlKey || event.metaKey) {
+                switch (event.key) {
+                    case '1':
+                        event.preventDefault();
+                        saaRouter.navigate('');
+                        break;
+                    case '2':
+                        event.preventDefault();
+                        saaRouter.navigate('analysis');
+                        break;
+                    case '3':
+                        event.preventDefault();
+                        saaRouter.navigate('visualization');
+                        break;
+                    case '4':
+                        event.preventDefault();
+                        saaRouter.navigate('reports');
+                        break;
+                    case '/':
+                        event.preventDefault();
+                        openAIQuery();
+                        break;
+                }
+            }
         });
         
         console.log('🧬 SAA Platform Enhanced Standalone - Loading...');
+        console.log('⌨️  Keyboard shortcuts: Ctrl+1-4 for navigation, Ctrl+/ for AI query');
     </script>
 </body>
 </html>
